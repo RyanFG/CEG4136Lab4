@@ -9,7 +9,7 @@
 using namespace std;
 
 // Taille de la matrice (modifiable)
-#define N 4
+#define N 33
 
 // Kernel de transposition avec mémoire partagée et padding
 __global__ void matrixTransposeShared(float* input, float* output) {
@@ -43,7 +43,10 @@ int main() {
     cout << "Initial: " << endl;
     for (int i = 0; i < N * N; ++i) {
         h_input[i] = static_cast<float>(i);
-        cout << h_input[i] << endl;
+        cout << h_input[i] << " ";
+        if (i % N == N-1) {
+            cout << endl;
+        }
     }
 
     // Allocation de la mémoire device
@@ -81,7 +84,10 @@ int main() {
 
         cout << "Final: " << endl;
         for (int i = 0; i < N * N; ++i) {
-            cout << h_output[i] << endl;
+            cout << h_output[i] << " ";
+            if (i % N == N-1) {
+                cout << endl;
+            }
         }
     }
     else {
