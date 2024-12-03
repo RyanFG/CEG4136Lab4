@@ -1,98 +1,63 @@
-﻿#include <iostream>
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
 #include <time.h>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
-using namespace std;
+#define N 8  // Taille du tableau
 
-// Taille de la matrice (modifiable)
-#define N 4
+// CUDA Kernel pour effectuer la réduction parallèle (réduction interlacée)
+__global__ void interleavedReduce(int* input, int n) {
+    int tid = threadIdx.x;
 
-// Kernel de transposition avec mémoire partagée et padding
-__global__ void matrixTransposeShared(float* input, float* output) {
-    __shared__ float tile[32][33]; // Mémoire partagée avec padding (33 colonnes)
+    __shared__ int inputShared[N / 2];
 
-    int x = blockIdx.x * 32 + threadIdx.x; // Index global x
-    int y = blockIdx.y * 32 + threadIdx.y; // Index global y
+    inputShared[tid] = input[2 * tid] + input[2 * tid + 1];
 
-    if (x < N && y < N) {
-        tile[threadIdx.y][threadIdx.x] = input[y * N + x]; // Lecture dans mémoire partagée
+    __syncthreads();
+
+    // Réduction parallèle par paires interlacées
+    for (int stride = 1; stride < n / 2; stride *= 2) {
+        if (tid % (2 * stride) == 0) {
+            inputShared[tid] += inputShared[tid + stride];
+        }
     }
 
-    __syncthreads(); // Synchronisation
-
-    x = blockIdx.y * 32 + threadIdx.x; // Réindexation pour la transposition
-    y = blockIdx.x * 32 + threadIdx.y;
-
-    if (x < N && y < N) {
-        output[y * N + x] = tile[threadIdx.x][threadIdx.y]; // Écriture après transposition
-    }
+    input[0] = inputShared[0];
 }
 
-// Fonction principale
 int main() {
-    // Allocation de la mémoire hôte
-    size_t size = N * N * sizeof(float);
-    float* h_input = (float*)malloc(size);
-    float* h_output = (float*)malloc(size);
+    int h_input[N];
 
-    // Initialisation de la matrice d'entrée
-    cout << "Initial: " << endl;
-    for (int i = 0; i < N * N; ++i) {
-        h_input[i] = static_cast<float>(i);
-        cout << h_input[i] << endl;
+    // Initialiser le générateur de nombres aléatoires avec l'horloge système
+    srand(time(NULL));
+
+    // Générer des nombres aléatoires entre 1 et 10
+    for (int i = 0; i < N; i++) {
+        h_input[i] = rand() % 10 + 1;
+        printf("Number Added: %d\n", h_input[i]);
     }
 
-    // Allocation de la mémoire device
-    float* d_input, * d_output;
-    cudaMalloc((void**)&d_input, size);
-    cudaMalloc((void**)&d_output, size);
+    // Allouer la mémoire sur le GPU
+    int* d_input;
+    cudaMalloc((void**)&d_input, N * sizeof(int));
 
-    // Copie de la matrice d'entrée vers le device
-    cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
+    // Copier les données de l'hôte (CPU) vers le GPU
+    cudaMemcpy(d_input, h_input, N * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Dimensions de la grille et des blocs
-    dim3 block(32, 32); // Taille du bloc
-    dim3 grid((N + 31) / 32, (N + 31) / 32); // Taille de la grille
+    // Lancer le kernel CUDA avec un bloc de N threads
+    interleavedReduce << <1, N / 2 >> > (d_input, N);
+    cudaDeviceSynchronize();  // Synchroniser les threads avant de passer à la prochaine étape
 
-    // Exécution du kernel
-    matrixTransposeShared << <grid, block >> > (d_input, d_output);
-    cudaDeviceSynchronize();
+    // Copier le résultat du GPU vers le CPU
+    cudaMemcpy(h_input, d_input, sizeof(int), cudaMemcpyDeviceToHost);
 
-    // Copie des résultats vers l'hôte
-    cudaMemcpy(h_output, d_output, size, cudaMemcpyDeviceToHost);
+    // Afficher le résultat final (la somme des éléments du tableau)
+    printf("Final Result (Sum of Table) : %d\n", *h_input);
 
-    // Vérification du résultat
-    bool success = true;
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            if (h_output[j * N + i] != h_input[i * N + j]) {
-                success = false;
-                break;
-            }
-        }
-    }
-
-    if (success) {
-        cout << "Transposition correcte !" << endl;
-
-        cout << "Final: " << endl;
-        for (int i = 0; i < N * N; ++i) {
-            cout << h_output[i] << endl;
-        }
-    }
-    else {
-        cout << "Erreur dans la transposition." << endl;
-    }
-
-    // Libération de la mémoire
+    // Libérer la mémoire sur le GPU
     cudaFree(d_input);
-    cudaFree(d_output);
-    free(h_input);
-    free(h_output);
 
     return 0;
 }
