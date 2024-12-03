@@ -12,23 +12,26 @@ using namespace std;
 #define N 4
 
 // Kernel de transposition avec mémoire partagée et padding
-__global__ void matrixTransposeShared(float* input, float* output) {
-    __shared__ float tile[32][33]; // Mémoire partagée avec padding (33 colonnes)
+__global__ void matrixTransposeNoPadding(float* input, float* floatoutput) {
+    __shared__ float tile[32][32]; // Shared memory without padding
 
-    int x = blockIdx.x * 32 + threadIdx.x; // Index global x
-    int y = blockIdx.y * 32 + threadIdx.y; // Index global y
+    int x = blockIdx.x * 32 + threadIdx.x; // Global index x
+    int y = blockIdx.y * 32 + threadIdx.y; // Global index y
 
+    // Load data into shared memory
     if (x < N && y < N) {
-        tile[threadIdx.y][threadIdx.x] = input[y * N + x]; // Lecture dans mémoire partagée
+        tile[threadIdx.y][threadIdx.x] = input[y * N + x];
     }
 
-    __syncthreads(); // Synchronisation
+    __syncthreads(); // Synchronize threads to ensure data is loaded
 
-    x = blockIdx.y * 32 + threadIdx.x; // Réindexation pour la transposition
+    // Transpose indices for output
+    x = blockIdx.y * 32 + threadIdx.x;
     y = blockIdx.x * 32 + threadIdx.y;
 
+    // Write transposed data to global memory
     if (x < N && y < N) {
-        output[y * N + x] = tile[threadIdx.x][threadIdx.y]; // Écriture après transposition
+        floatoutput[y * N + x] = tile[threadIdx.x][threadIdx.y];
     }
 }
 
